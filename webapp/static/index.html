@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hunyuan3D — Image to 3D</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --border:#e3e6ea; --text:#1c2430;
+    --muted:#68738f; --accent:#3b6ef6; --accent-h:#2f5cd8;
+    --ok:#1f9d55; --err:#d64545; --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:16px 28px;display:flex;align-items:center;gap:12px}
+  header h1{font-size:18px;font-weight:650}
+  header .badge{font-size:12px;color:var(--muted);border:1px solid var(--border);border-radius:99px;padding:3px 10px}
+  #health{margin-left:auto;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#e0a800;display:inline-block}
+  .dot.ok{background:var(--ok)} .dot.err{background:var(--err)}
+  main{max-width:1180px;margin:26px auto;padding:0 20px;display:grid;grid-template-columns:390px 1fr;gap:22px}
+  @media(max-width:940px){main{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+  .card h2{font-size:14px;font-weight:650;margin-bottom:14px;color:var(--text)}
+  /* dropzone */
+  #drop{border:2px dashed var(--border);border-radius:var(--radius);padding:26px 14px;text-align:center;cursor:pointer;transition:.15s;color:var(--muted);font-size:14px}
+  #drop:hover,#drop.over{border-color:var(--accent);background:#f0f4ff}
+  #drop img{max-height:190px;max-width:100%;border-radius:8px}
+  /* examples */
+  #examples{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-top:12px}
+  #examples img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:7px;border:2px solid transparent;cursor:pointer;background:#eee}
+  #examples img:hover{border-color:var(--accent)}
+  #examples img.sel{border-color:var(--accent)}
+  label{font-size:13px;color:var(--muted)}
+  .row{display:flex;align-items:center;gap:10px;margin-top:14px}
+  input[type=number]{width:110px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:14px}
+  input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px}
+  button.primary{width:100%;margin-top:18px;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;transition:.15s}
+  button.primary:hover{background:var(--accent-h)}
+  button.primary:disabled{background:#b9c6e8;cursor:not-allowed}
+  /* progress */
+  #progress{display:none;margin-top:16px}
+  .bar{height:8px;background:#edf0f4;border-radius:99px;overflow:hidden}
+  .bar>div{height:100%;width:0%;background:var(--accent);border-radius:99px;transition:width .6s}
+  #stageTxt{font-size:13px;color:var(--muted);margin-top:8px}
+  #errBox{display:none;margin-top:12px;color:var(--err);font-size:13px;background:#fdf1f1;border:1px solid #f3cdcd;border-radius:8px;padding:10px}
+  /* results */
+  #viewerCard{min-height:480px;display:flex;flex-direction:column}
+  #viewerWrap{flex:1;position:relative;border-radius:10px;overflow:hidden;background:linear-gradient(180deg,#eef1f5,#dfe4ea);min-height:420px}
+  #viewerWrap canvas{display:block}
+  #viewerHint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;pointer-events:none}
+  #results{display:none;grid-column:1/-1;grid-template-columns:1fr 1fr;gap:22px}
+  @media(max-width:940px){#results{grid-template-columns:1fr}}
+  #renderImg,#inputImg{width:100%;border-radius:10px;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 0/20px 20px}
+  .dl{display:inline-flex;align-items:center;gap:7px;margin-top:12px;margin-right:10px;background:#fff;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:9px 15px;font-size:13.5px;font-weight:550;cursor:pointer;text-decoration:none;transition:.15s}
+  .dl:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Image → 3D</h1><span class="badge">Hunyuan3D-2 · textured GLB</span>
+  <div id="health"><span class="dot" id="healthDot"></span><span id="healthTxt">loading models…</span></div>
+</header>
+
+<main>
+  <!-- left: input -->
+  <div class="card">
+    <h2>1 · Choose an image</h2>
+    <div id="drop">
+      <span id="dropTxt">Drop an image here or click to upload<br><small>PNG / JPG, one object works best</small></span>
+    </div>
+    <input type="file" id="file" accept="image/*" hidden>
+    <div id="examples"></div>
+    <div class="row">
+      <label>Seed <input type="number" id="seed" value="1234"></label>
+      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="texture" checked> Texture</label>
+    </div>
+    <button class="primary" id="go" disabled>Generate 3D model</button>
+    <div id="progress">
+      <div class="bar"><div id="barFill"></div></div>
+      <div id="stageTxt"></div>
+    </div>
+    <div id="errBox"></div>
+  </div>
+
+  <!-- right: 3D viewer -->
+  <div class="card" id="viewerCard">
+    <h2>2 · Rendered 3D model <span style="font-weight:400;color:var(--muted)">(drag to rotate, scroll to zoom)</span></h2>
+    <div id="viewerWrap"><div id="viewerHint">Your 3D model will appear here</div></div>
+    <div id="modelDl" style="display:none">
+      <a class="dl" id="dlGlb" download>⬇ Download 3D model (.glb)</a>
+      <button class="dl" id="snapBtn">📷 Re-capture render image</button>
+    </div>
+  </div>
+
+  <!-- bottom: renders -->
+  <div id="results">
+    <div class="card">
+      <h2>Rendered image</h2>
+      <img id="renderImg" alt="Rendered view">
+      <div><a class="dl" id="dlRender" download="hunyuan3d_render.png">⬇ Download render (.png)</a></div>
+    </div>
+    <div class="card">
+      <h2>Processed input</h2>
+      <img id="inputImg" alt="Input image (background removed)">
+      <div><a class="dl" id="dlInput" download>⬇ Download image (.png)</a></div>
+    </div>
+  </div>
+</main>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+
+const $ = id => document.getElementById(id);
+let selectedFile = null, jobId = null, poller = null;
+
+/* ---------- health ---------- */
+async function checkHealth(){
+  try{
+    const h = await (await fetch('/api/health')).json();
+    if(h.error){ $('healthDot').className='dot err'; $('healthTxt').textContent='model load failed'; }
+    else if(h.ready){ $('healthDot').className='dot ok'; $('healthTxt').textContent='ready'; updateGo(); return; }
+    else { $('healthTxt').textContent='loading models…'; }
+  }catch(e){ $('healthTxt').textContent='server unreachable'; }
+  setTimeout(checkHealth, 3000);
+}
+checkHealth();
+
+/* ---------- image selection ---------- */
+const drop = $('drop'), fileInput = $('file');
+drop.onclick = () => fileInput.click();
+drop.ondragover = e => {e.preventDefault(); drop.classList.add('over');};
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => {e.preventDefault(); drop.classList.remove('over');
+  if(e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);};
+fileInput.onchange = () => fileInput.files[0] && setFile(fileInput.files[0]);
+
+function setFile(f){
+  selectedFile = f;
+  document.querySelectorAll('#examples img').forEach(i=>i.classList.remove('sel'));
+  const r = new FileReader();
+  r.onload = e => drop.innerHTML = `<img src="${e.target.result}">`;
+  r.readAsDataURL(f);
+  updateGo();
+}
+
+fetch('/api/examples').then(r=>r.json()).then(d=>{
+  d.images.slice(0,12).forEach(url=>{
+    const img = new Image(); img.src = url; img.loading = 'lazy';
+    img.onclick = async () => {
+      const blob = await (await fetch(url)).blob();
+      setFile(new File([blob], url.split('/').pop(), {type: blob.type}));
+      document.querySelectorAll('#examples img').forEach(i=>i.classList.remove('sel'));
+      img.classList.add('sel');
+    };
+    $('examples').appendChild(img);
+  });
+});
+
+function updateGo(){
+  $('go').disabled = !(selectedFile && $('healthDot').classList.contains('ok')) || !!poller;
+}
+
+/* ---------- generate ---------- */
+$('go').onclick = async () => {
+  const fd = new FormData();
+  fd.append('image', selectedFile);
+  fd.append('seed', $('seed').value || 1234);
+  fd.append('texture', $('texture').checked);
+  $('errBox').style.display='none'; $('go').disabled = true;
+  $('progress').style.display='block'; setBar(2,'uploading…');
+  try{
+    const r = await fetch('/api/generate', {method:'POST', body:fd});
+    if(!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    jobId = (await r.json()).job_id;
+    poller = setInterval(poll, 2500);
+  }catch(e){ fail(e.message); }
+};
+
+function setBar(pct, txt){ $('barFill').style.width = pct+'%'; $('stageTxt').textContent = txt; }
+function fail(msg){
+  clearInterval(poller); poller=null;
+  $('errBox').textContent = 'Error: '+msg; $('errBox').style.display='block';
+  $('progress').style.display='none'; updateGo();
+}
+
+async function poll(){
+  try{
+    const s = await (await fetch('/api/status/'+jobId)).json();
+    if(s.status==='error') return fail(s.error||'generation failed');
+    const pct = Math.max(4, Math.round(100*s.stage_index/(s.num_stages-1)));
+    setBar(pct, s.status==='queued' ? 'queued…' : s.stage+'…');
+    if(s.status==='done'){
+      clearInterval(poller); poller=null;
+      setBar(100,'done'); setTimeout(()=>$('progress').style.display='none', 1200);
+      showResults();
+    }
+  }catch(e){ /* transient; keep polling */ }
+}
+
+/* ---------- three.js viewer ---------- */
+const wrap = $('viewerWrap');
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+wrap.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
+camera.position.set(1.6,1.1,1.6);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd8dde4, 1.4));
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(2,3,2); scene.add(key);
+const rim = new THREE.DirectionalLight(0xffffff, 0.7); rim.position.set(-2,1,-2); scene.add(rim);
+let modelGroup = null;
+
+function resize(){
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w,h); camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(wrap); resize();
+(function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene,camera); })();
+
+function loadModel(url){
+  return new Promise((res,rej)=>{
+    new GLTFLoader().load(url, g=>{
+      if(modelGroup) scene.remove(modelGroup);
+      modelGroup = g.scene;
+      // center + normalize scale
+      const box = new THREE.Box3().setFromObject(modelGroup);
+      const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+      const s = 1.4/Math.max(size.x,size.y,size.z);
+      modelGroup.position.sub(c.multiplyScalar(1)); modelGroup.scale.setScalar(s);
+      modelGroup.position.multiplyScalar(s);
+      scene.add(modelGroup);
+      $('viewerHint').style.display='none';
+      controls.reset(); camera.position.set(1.6,1.1,1.6); controls.target.set(0,0,0);
+      res();
+    }, undefined, rej);
+  });
+}
+
+function snapshot(){
+  renderer.render(scene,camera);
+  const data = renderer.domElement.toDataURL('image/png');
+  $('renderImg').src = data;
+  $('dlRender').href = data;
+}
+$('snapBtn').onclick = snapshot;
+
+async function showResults(){
+  const glbUrl = '/api/result/'+jobId+'/model.glb';
+  const inputUrl = '/api/result/'+jobId+'/input.png';
+  await loadModel(glbUrl);
+  $('dlGlb').href = glbUrl;
+  $('inputImg').src = inputUrl;
+  $('dlInput').href = inputUrl;
+  $('modelDl').style.display='block';
+  $('results').style.display='grid';
+  setTimeout(snapshot, 400);   // let first frames render, then capture
+  updateGo();
+}
+</script>
+</body>
+</html>
